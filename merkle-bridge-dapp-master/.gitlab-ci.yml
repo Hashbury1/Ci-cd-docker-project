@@ -6,20 +6,15 @@ stages:
 
 # 2. Define DOCKER variables
 variables:
-  # Standard D-I-D variables
   DOCKER_HOST: tcp://docker:2375
   DOCKER_TLS_CERTDIR: ""
-  # Use GitLab's built-in registry variables for the image name
   IMAGE_NAME: $CI_REGISTRY/$CI_PROJECT_PATH/my-app
 
-# --- Shared Configuration for Docker Jobs ---
+# --- Shared Configuration (No Rules) ---
 .docker-job:
   image: docker:20.10.16
   services:
     - docker:20.10.16-dind
-  # Ensure these jobs only run when pushing to the main branch
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 # --- JOB 1: Build the Docker Image ---
 build-image:
@@ -27,37 +22,30 @@ build-image:
   stage: build
   script:
     - echo "--- Building Docker Image ---"
-    # 1. Log in to the registry (needed for subsequent pushes/pulls)
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    # 2. Build and tag the image
     - docker build -t $IMAGE_NAME:$CI_COMMIT_SHORT_SHA .
-    # 3. Push the image immediately after building so the next job can pull it
     - docker push $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
-  # Do not need artifacts since we push the image to the registry immediately
-  # before the test job runs.
+  # Ensure this job can be used by the next one
+  needs: []
 
 # --- JOB 2: Run Unit Tests ---
 run-tests:
   extends: .docker-job
   stage: test
-  # This job *needs* the build-image job to complete successfully
   needs: ["build-image"]
   script:
     - echo "--- Running Unit Tests inside Container ---"
-    # Pull the image that the previous stage just pushed
     - docker pull $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
-    # Run the tests. ***Replace 'npm test' with your actual command***
-    - docker run $IMAGE_NAME:$CI_COMMIT_SHORT_SHA npm test
+    # ***IMPORTANT: Check this line! If 'npm test' is wrong, it fails the job.***
+    - docker run $IMAGE_NAME:$CI_COMMIT_SHORT_SHA npm test 
 
 # --- JOB 3: Publish (Push) the Image to Registry ---
 publish-image:
   extends: .docker-job
   stage: publish
-  # This job needs the test job to complete successfully
   needs: ["run-tests"]
   script:
     - echo "--- Pushing Final Tagged Image to Registry ---"
-    # Tag the image with 'latest' and push it
-    - docker pull $IMAGE_NAME:$CI_COMMIT_SHORT_SHA # Pull to re-tag
+    - docker pull $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
     - docker tag $IMAGE_NAME:$CI_COMMIT_SHORT_SHA $IMAGE_NAME:latest
     - docker push $IMAGE_NAME:latest
