@@ -1,0 +1,54 @@
+# 1. Define the stages
+stages:
+  - build
+  - test
+  - publish
+
+# 2. Define DOCKER variables
+variables:
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+  IMAGE_NAME: $CI_REGISTRY/$CI_PROJECT_PATH/my-app
+
+# --- Shared Configuration ---
+.docker-job:
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
+
+# --- JOB 1: Build the Docker Image ---
+build-image:
+  extends: .docker-job
+  stage: build
+  script:
+    - echo "--- Building Docker Image (Job 1) ---"
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -t $IMAGE_NAME:$CI_COMMIT_SHORT_SHA .
+    - docker push $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
+
+
+# --- JOB 2: Run Unit Tests ---
+run-tests:
+  extends: .docker-job
+  stage: test
+  needs: ["build-image"]
+  script:
+    - echo "--- Running Unit Tests (Job 2) ---"
+    # CRITICAL: Login required to pull the image from the registry
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY 
+    - docker pull $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
+    - docker run $IMAGE_NAME:$CI_COMMIT_SHORT_SHA npm test 
+
+
+# --- JOB 3: Publish (Push) the Image to Registry ---
+publish-image:
+  extends: .docker-job
+  stage: publish
+  needs: ["run-tests"]
+  script:
+    - echo "--- Pushing Final Tagged Image (Job 3) ---"
+    # CRITICAL: Login required to push the final image
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY 
+    - docker pull $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
+    - docker tag $IMAGE_NAME:$CI_COMMIT_SHORT_SHA $IMAGE_NAME:latest
+    - docker push $IMAGE_NAME:latest
