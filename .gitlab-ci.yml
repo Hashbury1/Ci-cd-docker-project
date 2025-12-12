@@ -8,17 +8,16 @@ stages:
 variables:
   DOCKER_HOST: tcp://docker:2375
   DOCKER_TLS_CERTDIR: ""
-  # NEW VARIABLE: Converts the project path to lowercase
-  LOWERCASE_PROJECT_PATH: ${CI_PROJECT_PATH,,}
-  # CRITICAL FIX: Use the lowercase path for the image name
-  IMAGE_NAME: $CI_REGISTRY/$LOWERCASE_PROJECT_PATH/my-app
+  # REMOVED: LOWERCASE_PROJECT_PATH and updated IMAGE_NAME here
+  # We will define the final image name in the script block.
+  # The base name remains, but we will construct the full tag later.
+  IMAGE_NAME_BASE: $CI_REGISTRY/$CI_PROJECT_PATH/my-app
 
 # --- Shared Configuration ---
 .docker-job:
   image: docker:20.10.16
   services:
     - docker:20.10.16-dind
-  
 
 # --- JOB 1: Build the Docker Image ---
 build-image:
@@ -26,10 +25,19 @@ build-image:
   stage: build
   script:
     - echo "--- Building Docker Image (Job 1) ---"
+    # 1. CRITICAL FIX: Create the lowercase path variable in the script environment
+    - CI_PROJECT_PATH_LOWER=$(echo "$CI_PROJECT_PATH" | tr '[:upper:]' '[:lower:]')
+    
+    # 2. Re-create the full image tag using the new lowercase variable
+    - FULL_IMAGE_TAG="$CI_REGISTRY/$CI_PROJECT_PATH_LOWER/my-app:$CI_COMMIT_SHORT_SHA"
+    
+    - echo "Target Image Tag: $FULL_IMAGE_TAG"
+    
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build -t $IMAGE_NAME:$CI_COMMIT_SHORT_SHA .
-    - docker push $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
-
+    
+    # 3. Use the new, guaranteed lowercase tag in the build and push
+    - docker build -t $FULL_IMAGE_TAG .
+    - docker push $FULL_IMAGE_TAG
 
 # --- JOB 2: Run Unit Tests ---
 run-tests:
@@ -38,11 +46,13 @@ run-tests:
   needs: ["build-image"]
   script:
     - echo "--- Running Unit Tests (Job 2) ---"
-    # CRITICAL: Login required to pull the image from the registry
+    # Repeat the variable definition for this job
+    - CI_PROJECT_PATH_LOWER=$(echo "$CI_PROJECT_PATH" | tr '[:upper:]' '[:lower:]')
+    - FULL_IMAGE_TAG="$CI_REGISTRY/$CI_PROJECT_PATH_LOWER/my-app:$CI_COMMIT_SHORT_SHA"
+    
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY 
-    - docker pull $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
-    - docker run $IMAGE_NAME:$CI_COMMIT_SHORT_SHA npm test 
-
+    - docker pull $FULL_IMAGE_TAG
+    - docker run $FULL_IMAGE_TAG npm test 
 
 # --- JOB 3: Publish (Push) the Image to Registry ---
 publish-image:
@@ -51,8 +61,13 @@ publish-image:
   needs: ["run-tests"]
   script:
     - echo "--- Pushing Final Tagged Image (Job 3) ---"
-    # CRITICAL: Login required to push the final image
+    # Repeat the variable definition for this job
+    - CI_PROJECT_PATH_LOWER=$(echo "$CI_PROJECT_PATH" | tr '[:upper:]' '[:lower:]')
+    - FULL_IMAGE_TAG="$CI_REGISTRY/$CI_PROJECT_PATH_LOWER/my-app:$CI_COMMIT_SHORT_SHA"
+    
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY 
-    - docker pull $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
-    - docker tag $IMAGE_NAME:$CI_COMMIT_SHORT_SHA $IMAGE_NAME:latest
-    - docker push $IMAGE_NAME:latest
+    
+    - docker pull $FULL_IMAGE_TAG
+    
+    - docker tag $FULL_IMAGE_TAG "$CI_REGISTRY/$CI_PROJECT_PATH_LOWER/my-app:latest"
+    - docker push "$CI_REGISTRY/$CI_PROJECT_PATH_LOWER/my-app:latest"
