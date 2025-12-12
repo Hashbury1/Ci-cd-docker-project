@@ -8,12 +8,11 @@ stages:
 variables:
   DOCKER_HOST: tcp://docker:2375
   DOCKER_TLS_CERTDIR: ""
-  # CRITICAL FIX: Simplify the image name to remove the complex path
-  # This uses the image name based only on the project name, which is often lowercase.
-  IMAGE_NAME: $CI_REGISTRY/$CI_PROJECT_NAME/my-app 
+  # CRITICAL FIX: Use a hardcoded, 100% lowercase image name that YOU verify
+  SAFE_IMAGE_NAME: my-app-ci-image 
   
-  # Note: CI_PROJECT_NAME is the repo name (e.g., ci-cd-docker).
-  # If the repo name has capitals, this will fail, but it's the simplest fix.
+  # We will construct the full tag using this safe name
+  # Example final tag: registry.gitlab.com/my-app-ci-image:f5269f73
 
 # --- Shared Configuration ---
 .docker-job:
@@ -26,11 +25,48 @@ build-image:
   script:
     - echo "--- Building Docker Image (Job 1) ---"
     
-    # We will log the final tag here to see what the variable resolves to
-    - echo "Final Image Tag: $CI_REGISTRY/$CI_PROJECT_NAME/my-app:$CI_COMMIT_SHORT_SHA"
+    # CONSTRUCT THE FINAL TAG using the safe name
+    - FULL_IMAGE_TAG="$CI_REGISTRY/$SAFE_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+    - FULL_IMAGE_TAG_LATEST="$CI_REGISTRY/$SAFE_IMAGE_NAME:latest"
+    
+    - echo "Target Image Tag: $FULL_IMAGE_TAG"
     
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     
-    - docker build -t $CI_REGISTRY/$CI_PROJECT_NAME/my-app:$CI_COMMIT_SHORT_SHA .
-    - docker push $CI_REGISTRY/$CI_PROJECT_NAME/my-app:$CI_COMMIT_SHORT_SHA
-# ...
+    # Use the new, guaranteed lowercase tag
+    - docker build -t $FULL_IMAGE_TAG .
+    - docker push $FULL_IMAGE_TAG
+
+# --- JOB 2: Run Unit Tests ---
+run-tests:
+  extends: .docker-job
+  stage: test
+  needs: ["build-image"]
+  script:
+    - echo "--- Running Unit Tests (Job 2) ---"
+    
+    # REPEAT VARIABLE DEFINITION for this job
+    - FULL_IMAGE_TAG="$CI_REGISTRY/$SAFE_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+    
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY 
+    - docker pull $FULL_IMAGE_TAG
+    - docker run $FULL_IMAGE_TAG npm test 
+
+# --- JOB 3: Publish (Push) the Image to Registry ---
+publish-image:
+  extends: .docker-job
+  stage: publish
+  needs: ["run-tests"]
+  script:
+    - echo "--- Pushing Final Tagged Image (Job 3) ---"
+    
+    # REPEAT VARIABLE DEFINITION for this job
+    - FULL_IMAGE_TAG="$CI_REGISTRY/$SAFE_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+    - FULL_IMAGE_TAG_LATEST="$CI_REGISTRY/$SAFE_IMAGE_NAME:latest"
+    
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY 
+    
+    - docker pull $FULL_IMAGE_TAG
+    
+    - docker tag $FULL_IMAGE_TAG $FULL_IMAGE_TAG_LATEST
+    - docker push $FULL_IMAGE_TAG_LATEST
