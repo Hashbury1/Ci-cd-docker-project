@@ -32,13 +32,19 @@ build-image:
 
 # --- JOB 2: Run Unit Tests ---
 run-tests:
-  <<: *docker_template # Use ALIAS instead of extends
+  <<: *docker_template
   stage: test
   needs: ["build-image"]
+  # V V V V V V V V V V V V V V V V V V V V V V V
   script:
-    # ... (rest of the script is fine)
-
-# --- JOB 3: Publish (Push) the Image to Registry ---
+    - echo "--- Running Unit Tests (Job 2) ---"
+    - FULL_IMAGE_TAG="$CI_REGISTRY/$SAFE_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY 
+    - docker pull $FULL_IMAGE_TAG
+    - docker run $FULL_IMAGE_TAG npm test
+    
+    
+    # --- JOB 3: Publish (Push) the Image to Registry ---
 publish-image:
   <<: *docker_template # Use ALIAS instead of extends
   stage: publish
