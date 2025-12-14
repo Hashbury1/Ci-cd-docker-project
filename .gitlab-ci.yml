@@ -5,11 +5,13 @@ stages:
   - publish
 
 # 2. Define DOCKER variables
+# 2. Define DOCKER variables
 variables:
   DOCKER_HOST: tcp://docker:2375
   DOCKER_TLS_CERTDIR: ""
-  # CRITICAL FIX: Use a hardcoded, 100% lowercase image name that YOU verify
-  SAFE_IMAGE_NAME: my-app-ci-image 
+  # CRITICAL FIX: Hardcode the registry domain
+  CI_REGISTRY: "registry.gitlab.com"
+  SAFE_IMAGE_NAME: my-app-ci-image
   
   # We will construct the full tag using this safe name
   # Example final tag: registry.gitlab.com/my-app-ci-image:f5269f73
