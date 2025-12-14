@@ -8,7 +8,7 @@ stages:
 variables:
   DOCKER_HOST: tcp://docker:2375
   DOCKER_TLS_CERTDIR: ""
-  CI_REGISTRY: "registry.gitlab.com" # Keep this hardcoded fix
+  CI_REGISTRY: "registry.gitlab.com"
   SAFE_IMAGE_NAME: my-app-ci-image 
 
 # --- Shared Configuration (USING ANCHOR) ---
@@ -19,35 +19,42 @@ variables:
 
 # --- JOB 1: Build the Docker Image ---
 build-image:
-  <<: *docker_template # Use ALIAS instead of extends
+  <<: *docker_template
   stage: build
   script:
-    # ... (rest of the script is fine, using FULL_IMAGE_TAG, etc.)
-    - FULL_IMAGE_TAG="$CI_REGISTRY/$SAFE_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
-    - FULL_IMAGE_TAG_LATEST="$CI_REGISTRY/$SAFE_IMAGE_NAME:latest"
-    # ...
+    - echo "--- Building Docker Image (Job 1) ---"
+    - FULL_IMAGE_TAG="$CI_REGISTRY/$CI_PROJECT_NAMESPACE/$SAFE_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+    - FULL_IMAGE_TAG_LATEST="$CI_REGISTRY/$CI_PROJECT_NAMESPACE/$SAFE_IMAGE_NAME:latest"
+    - echo "Building image $FULL_IMAGE_TAG"
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - docker build -t $FULL_IMAGE_TAG .
+    - docker tag $FULL_IMAGE_TAG $FULL_IMAGE_TAG_LATEST
     - docker push $FULL_IMAGE_TAG
+    - docker push $FULL_IMAGE_TAG_LATEST
 
 # --- JOB 2: Run Unit Tests ---
 run-tests:
   <<: *docker_template
   stage: test
   needs: ["build-image"]
-  # V V V V V V V V V V V V V V V V V V V V V V V
   script:
     - echo "--- Running Unit Tests (Job 2) ---"
-    - FULL_IMAGE_TAG="$CI_REGISTRY/$SAFE_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+    - FULL_IMAGE_TAG="$CI_REGISTRY/$CI_PROJECT_NAMESPACE/$SAFE_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY 
     - docker pull $FULL_IMAGE_TAG
     - docker run $FULL_IMAGE_TAG npm test
-    
-    
-    # --- JOB 3: Publish (Push) the Image to Registry ---
+
+# --- JOB 3: Publish (Push) the Image to Registry ---
 publish-image:
-  <<: *docker_template # Use ALIAS instead of extends
+  <<: *docker_template
   stage: publish
   needs: ["run-tests"]
   script:
-    # ... (rest of the script is fine)
+    - echo "--- Publishing Image (Job 3) ---"
+    - FULL_IMAGE_TAG="$CI_REGISTRY/$CI_PROJECT_NAMESPACE/$SAFE_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+    - FULL_IMAGE_TAG_LATEST="$CI_REGISTRY/$CI_PROJECT_NAMESPACE/$SAFE_IMAGE_NAME:latest"
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker pull $FULL_IMAGE_TAG
+    - docker tag $FULL_IMAGE_TAG $FULL_IMAGE_TAG_LATEST
+    - docker push $FULL_IMAGE_TAG_LATEST
+    - echo "Image published successfully!"
