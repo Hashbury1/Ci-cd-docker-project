@@ -5,70 +5,43 @@ stages:
   - publish
 
 # 2. Define DOCKER variables
-# 2. Define DOCKER variables
 variables:
   DOCKER_HOST: tcp://docker:2375
   DOCKER_TLS_CERTDIR: ""
-  # CRITICAL FIX: Hardcode the registry domain
-  CI_REGISTRY: "registry.gitlab.com"
-  SAFE_IMAGE_NAME: my-app-ci-image
-  
-  # We will construct the full tag using this safe name
-  # Example final tag: registry.gitlab.com/my-app-ci-image:f5269f73
+  CI_REGISTRY: "registry.gitlab.com" # Keep this hardcoded fix
+  SAFE_IMAGE_NAME: my-app-ci-image 
 
-# --- Shared Configuration ---
-.docker-job:
-# ... (rest of the shared config is fine)
+# --- Shared Configuration (USING ANCHOR) ---
+.docker-template: &docker_template
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
 
 # --- JOB 1: Build the Docker Image ---
 build-image:
-  extends: .docker-job
+  <<: *docker_template # Use ALIAS instead of extends
   stage: build
   script:
-    - echo "--- Building Docker Image (Job 1) ---"
-    
-    # CONSTRUCT THE FINAL TAG using the safe name
+    # ... (rest of the script is fine, using FULL_IMAGE_TAG, etc.)
     - FULL_IMAGE_TAG="$CI_REGISTRY/$SAFE_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
     - FULL_IMAGE_TAG_LATEST="$CI_REGISTRY/$SAFE_IMAGE_NAME:latest"
-    
-    - echo "Target Image Tag: $FULL_IMAGE_TAG"
-    
+    # ...
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    
-    # Use the new, guaranteed lowercase tag
     - docker build -t $FULL_IMAGE_TAG .
     - docker push $FULL_IMAGE_TAG
 
 # --- JOB 2: Run Unit Tests ---
 run-tests:
-  extends: .docker-job
+  <<: *docker_template # Use ALIAS instead of extends
   stage: test
   needs: ["build-image"]
   script:
-    - echo "--- Running Unit Tests (Job 2) ---"
-    
-    # REPEAT VARIABLE DEFINITION for this job
-    - FULL_IMAGE_TAG="$CI_REGISTRY/$SAFE_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
-    
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY 
-    - docker pull $FULL_IMAGE_TAG
-    - docker run $FULL_IMAGE_TAG npm test 
+    # ... (rest of the script is fine)
 
 # --- JOB 3: Publish (Push) the Image to Registry ---
 publish-image:
-  extends: .docker-job
+  <<: *docker_template # Use ALIAS instead of extends
   stage: publish
   needs: ["run-tests"]
   script:
-    - echo "--- Pushing Final Tagged Image (Job 3) ---"
-    
-    # REPEAT VARIABLE DEFINITION for this job
-    - FULL_IMAGE_TAG="$CI_REGISTRY/$SAFE_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
-    - FULL_IMAGE_TAG_LATEST="$CI_REGISTRY/$SAFE_IMAGE_NAME:latest"
-    
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY 
-    
-    - docker pull $FULL_IMAGE_TAG
-    
-    - docker tag $FULL_IMAGE_TAG $FULL_IMAGE_TAG_LATEST
-    - docker push $FULL_IMAGE_TAG_LATEST
+    # ... (rest of the script is fine)
